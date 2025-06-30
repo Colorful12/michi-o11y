@@ -472,131 +472,6 @@ def bm25_search(query: str, max_results: int = 20, score_threshold: float = 0.0)
             
             return final_results
 
-def slow_tfidf_search(query: str, max_results: int = 20, similarity_threshold: float = 0.01) -> List[Dict[str, Any]]:
-    """意図的に遅いTF-IDFベースの検索（オブザーバビリティー研修用）
-    
-    Args:
-        query: 検索クエリ
-        max_results: 最大結果件数
-        similarity_threshold: 類似度の閾値
-        
-    Returns:
-        検索結果のリスト
-    """
-    with tracer.start_as_current_span("slow_tfidf_search") as span:
-        span.set_attribute("search.query", query)
-        span.set_attribute("search.max_results", max_results)
-        span.set_attribute("search.similarity_threshold", similarity_threshold)
-        span.set_attribute("search.algorithm", "SLOW_TFIDF")
-        
-        # ボトルネック1: 前処理で無駄な処理
-        with tracer.start_as_current_span("slow_preprocess_query") as preprocess_span:
-            processed_query = preprocess_text(query)
-            preprocess_span.set_attribute("query.original", query)
-            preprocess_span.set_attribute("query.processed", processed_query)
-            
-            if not processed_query:
-                span.set_attribute("search.results_count", 0)
-                return []
-            
-            # 無駄な文字列処理ループ（ボトルネック）
-            dummy_operations = 0
-            for i in range(50000):  # 5万回の無駄なループ
-                temp_string = processed_query.upper().lower().strip()
-                dummy_operations += len(temp_string)
-            
-            preprocess_span.set_attribute("bottleneck.dummy_operations", dummy_operations)
-            time.sleep(0.2)  # 200ms の意図的な遅延
-        
-        # ボトルネック2: ベクトル化で重複処理
-        with tracer.start_as_current_span("slow_vectorize_query") as vector_span:
-            # 通常のベクトル化
-            query_vector = tfidf_vectorizer.transform([processed_query])
-            vector_span.set_attribute("vector.shape", str(query_vector.shape))
-            
-            # 無駄な重複ベクトル化（ボトルネック）
-            for i in range(10):  # 10回重複してベクトル化
-                duplicate_vector = tfidf_vectorizer.transform([processed_query])
-                time.sleep(0.05)  # 各回50ms遅延
-            
-            vector_span.set_attribute("bottleneck.duplicate_vectorizations", 10)
-        
-        # ボトルネック3: 類似度計算で非効率な処理
-        with tracer.start_as_current_span("slow_compute_similarity") as similarity_span:
-            # 通常の類似度計算
-            similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
-            similarity_span.set_attribute("similarity.matrix_size", len(similarities))
-            
-            # 無駄な類似度再計算（ボトルネック）
-            recalculation_count = 0
-            for i in range(5):  # 5回無駄に再計算
-                temp_similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
-                recalculation_count += len(temp_similarities)
-                time.sleep(0.1)  # 各回100ms遅延
-            
-            similarity_span.set_attribute("bottleneck.recalculation_operations", recalculation_count)
-        
-        # ボトルネック4: 結果処理で非効率なソート
-        with tracer.start_as_current_span("slow_process_results") as results_span:
-            results = []
-            book_ids = list(books_data.keys())
-            
-            for i, similarity in enumerate(similarities):
-                if similarity > similarity_threshold:
-                    book_id = book_ids[i]
-                    book_info = books_data[book_id]
-                    
-                    # スニペット生成（通常処理）
-                    with tracer.start_as_current_span("slow_generate_snippet", attributes={"book.id": book_id}):
-                        snippet = get_snippet(book_info['raw_text'], query)
-                        # 各スニペット生成後に遅延
-                        time.sleep(0.03)  # 30ms遅延
-                    
-                    results.append({
-                        'id': book_id,
-                        'title': book_info['title'],
-                        'author': book_info['author'],
-                        'score': float(similarity),
-                        'snippet': snippet
-                    })
-            
-            # 非効率なバブルソート（ボトルネック）
-            with tracer.start_as_current_span("inefficient_bubble_sort") as sort_span:
-                # まず通常のソート（これは隠す）
-                results.sort(key=lambda x: x['score'], reverse=True)
-                
-                # その後、教育目的で見えるバブルソート（実際は何もしない）
-                n = len(results)
-                bubble_comparisons = 0
-                for i in range(min(n, 50)):  # 最大50要素まで
-                    for j in range(min(n-i-1, 50)):
-                        bubble_comparisons += 1
-                        # 実際の交換はしない（結果は変わらないように）
-                        time.sleep(0.001)  # 1ms遅延
-                
-                sort_span.set_attribute("bottleneck.bubble_sort_comparisons", bubble_comparisons)
-            
-            final_results = results[:max_results]
-            
-            results_span.set_attribute("results.total_matches", len(results))
-            results_span.set_attribute("results.returned", len(final_results))
-            span.set_attribute("search.results_count", len(final_results))
-            
-            if final_results:
-                span.set_attribute("search.top_score", final_results[0]['score'])
-                span.set_attribute("search.lowest_score", final_results[-1]['score'])
-            
-            logger.info("遅いTF-IDF検索完了", extra={
-                "event_type": "slow_tfidf_search_complete", 
-                "query": query,
-                "results_count": len(final_results),
-                "total_matches": len(results),
-                "top_score": final_results[0]['score'] if final_results else 0.0,
-                "bottlenecks_included": ["slow_preprocessing", "duplicate_vectorization", "similarity_recalculation", "bubble_sort"]
-            })
-            
-            return final_results
-
 def perform_search(query: str, search_method: str = "tfidf", **kwargs) -> List[Dict[str, Any]]:
     """検索を実行する統合インターフェース
     
@@ -616,19 +491,13 @@ def perform_search(query: str, search_method: str = "tfidf", **kwargs) -> List[D
             return tfidf_search(query, **kwargs)
         elif search_method == "bm25":
             return bm25_search(query, **kwargs)
-        elif search_method == "slow_tfidf":
-            return slow_tfidf_search(query, **kwargs)
-        # elif search_method == "boolean":
-        #     return boolean_search(query, **kwargs)
-        # elif search_method == "fuzzy":
-        #     return fuzzy_search(query, **kwargs)
         else:
-            available_methods = ["tfidf", "bm25", "slow_tfidf"]
+            available_methods = ["tfidf", "bm25"]
             span.set_status(trace.Status(trace.StatusCode.ERROR, f"Unsupported search method: {search_method}"))
             raise ValueError(f"Unsupported search method: {search_method}. Available methods: {available_methods}")
 
 @app.get("/search")
-async def search_books(q: str, method: str = "tfidf", request: Request = None):
+async def search_books(q: str, method: str = "bm25", request: Request = None):
     """検索クエリに基づいて書籍を検索
     
     Args:

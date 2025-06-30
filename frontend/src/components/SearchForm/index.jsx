@@ -30,7 +30,7 @@ function SearchForm({ query, onQueryChange, method, onMethodChange, onSubmit, lo
             </button>
           </div>
         </div>
-        
+
         <div className="form-group">
           <label htmlFor="method">
             検索手法
@@ -41,9 +41,8 @@ function SearchForm({ query, onQueryChange, method, onMethodChange, onSubmit, lo
             onChange={(e) => onMethodChange(e.target.value)}
             disabled={loading}
           >
-            {/* <option value="tfidf">TF-IDF（従来手法）</option> */}
-            {/* <option value="bm25">BM25（高精度）</option> */}
-            <option value="slow_tfidf">TF-IDF</option>
+            <option value="bm25">BM25（高精度）</option>
+            <option value="tfidf">TF-IDF（従来手法）</option>
           </select>
           <div className="method-description">
             {method === 'tfidf' && (
@@ -51,9 +50,6 @@ function SearchForm({ query, onQueryChange, method, onMethodChange, onSubmit, lo
             )}
             {method === 'bm25' && (
               <small>🟢 BM25: より実用的で高精度な検索アルゴリズム</small>
-            )}
-            {method === 'slow_tfidf' && (
-              <small>🔴 遅いTF-IDF: オブザーバビリティー研修用（意図的に遅い実装）</small>
             )}
           </div>
         </div>

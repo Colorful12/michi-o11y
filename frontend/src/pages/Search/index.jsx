@@ -11,7 +11,7 @@ import './index.scss'
 function Search() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState(searchParams.get('q') || '')
-  const [method, setMethod] = useState(searchParams.get('method') || 'tfidf')
+  const [method, setMethod] = useState(searchParams.get('method') || 'bm25')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -22,7 +22,7 @@ function Search() {
 
   useEffect(() => {
     const initialQuery = searchParams.get('q')
-    const initialMethod = searchParams.get('method') || 'tfidf'
+    const initialMethod = searchParams.get('method') || 'bm25'
     if (initialQuery) {
       setQuery(initialQuery)
       setMethod(initialMethod)
@@ -51,7 +51,7 @@ function Search() {
       setLoading(true)
       setError(null)
       setSearchPerformed(true)
-      
+
       // UI更新
       const uiSpan = tracer.startSpan('update_ui_loading', {
         attributes: {
@@ -60,7 +60,7 @@ function Search() {
         }
       })
       uiSpan.end()
-      
+
       // API リクエスト準備
       const prepSpan = tracer.startSpan('prepare_api_request', {
         attributes: {
@@ -68,7 +68,7 @@ function Search() {
           'search.query': searchQuery
         }
       })
-      
+
       // URLの構築を修正 - 相対パスと絶対パスの両方に対応
       let url
       if (API_BASE_URL.startsWith('http')) {
@@ -80,15 +80,15 @@ function Search() {
         // 本番環境: 相対パス
         url = `${API_BASE_URL}/search?q=${encodeURIComponent(searchQuery)}&method=${encodeURIComponent(searchMethod)}`
       }
-      
+
       prepSpan.setAttributes({
         'http.url': url.toString(),
         'http.method': 'GET'
       })
       prepSpan.end()
-      
+
       console.log(`[Frontend] リクエストURL: "${url}"`)
-      
+
       // APIリクエスト実行（Fetchの自動計装でトレースされる）
       const apiSpan = tracer.startSpan('api_request_execute', {
         attributes: {
@@ -97,36 +97,36 @@ function Search() {
           'search.query': searchQuery
         }
       })
-      
+
       const response = await fetch(url)
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
-      
+
       apiSpan.setAttributes({
         'http.status_code': response.status,
         'http.status_text': response.statusText
       })
-      
+
       // レスポンス処理
       const parseSpan = tracer.startSpan('parse_response', {
         attributes: {
           'response.type': 'json'
         }
       })
-      
+
       const data = await response.json()
-      
+
       parseSpan.setAttributes({
         'search.results_count': data.total_results || 0,
         'search.returned_results': data.results?.length || 0
       })
       parseSpan.end()
       apiSpan.end()
-      
+
       const searchTime = Date.now() - startTime
       console.log(`[Frontend] 検索完了: "${searchQuery}" - ${data.total_results}件の結果 (${searchTime}ms)`)
-      
+
       // 結果処理Span
       const resultsSpan = tracer.startSpan('process_search_results', {
         attributes: {
@@ -134,11 +134,11 @@ function Search() {
           'search.processing_time_ms': searchTime
         }
       })
-      
+
       if (data.results.length > 0) {
         const topResult = data.results[0]
         console.log(`[Frontend] 最高スコア: "${topResult.title}" by ${topResult.author} (${topResult.score.toFixed(4)})`)
-        
+
         resultsSpan.setAttributes({
           'search.top_result.title': topResult.title,
           'search.top_result.author': topResult.author,
@@ -150,9 +150,9 @@ function Search() {
           'search.has_results': false
         })
       }
-      
+
       setResults(data.results)
-      
+
       // URLパラメータを更新
       const urlUpdateSpan = tracer.startSpan('update_url_params', {
         attributes: {
@@ -162,20 +162,20 @@ function Search() {
       })
       setSearchParams({ q: searchQuery, method: searchMethod })
       urlUpdateSpan.end()
-      
+
       resultsSpan.end()
-      
+
       // 成功時のSpan属性設定
       span.setAttributes({
         'search.success': true,
         'search.results_count': data.total_results || 0,
         'search.duration_ms': searchTime
       })
-      
+
     } catch (err) {
       const errorTime = Date.now() - startTime
       console.error(`[Frontend] 検索エラー: "${searchQuery}" (${errorTime}ms)`, err)
-      
+
       // エラー処理Span
       const errorSpan = tracer.startSpan('handle_search_error', {
         attributes: {
@@ -184,10 +184,10 @@ function Search() {
           'search.error_time_ms': errorTime
         }
       })
-      
+
       setError('検索に失敗しました')
       setResults([])
-      
+
       // エラー情報をメインSpanに記録
       span.recordException(err)
       span.setAttributes({
@@ -195,7 +195,7 @@ function Search() {
         'search.error': err.message,
         'search.duration_ms': errorTime
       })
-      
+
       errorSpan.end()
     } finally {
       // UI更新Span
@@ -207,7 +207,7 @@ function Search() {
       })
       setLoading(false)
       finalUiSpan.end()
-      
+
       // メインSpanの終了
       span.end()
     }
@@ -215,7 +215,7 @@ function Search() {
 
   return (
     <div className="search-page">
-      <SearchForm 
+      <SearchForm
         query={query}
         onQueryChange={setQuery}
         method={method}
@@ -241,9 +241,9 @@ function Search() {
             {!loading && results.length > 0 && (
               <div className="search-method-badge">
                 <span className={`method-badge method-${method}`}>
-                  {method === 'tfidf' ? '🔵 TF-IDF' : 
-                   method === 'bm25' ? '🟢 BM25' : 
-                   method === 'slow_tfidf' ? '🔴 遅いTF-IDF' : method}
+                  {method === 'tfidf' ? '🔵 TF-IDF' :
+                    method === 'bm25' ? '🟢 BM25' :
+                      method === 'slow_tfidf' ? '🔴 遅いTF-IDF' : method}
                 </span>
               </div>
             )}
@@ -263,7 +263,7 @@ function Search() {
           {!loading && results.length > 0 && (
             <div className="results-list">
               {results.map((result, index) => (
-                <SearchResult 
+                <SearchResult
                   key={`${result.id}-${index}`}
                   result={result}
                   searchQuery={query}
